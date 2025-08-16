@@ -1,0 +1,35 @@
+{
+  "manifest_version": 3,
+  "name": "AI 回答完成提醒器 (Gemini & ChatGPT)",
+  "version": "1.0.0",
+  "description": "当 Gemini 或 ChatGPT 完成回答生成时，发送桌面通知和声音提醒。",
+  "permissions": [
+    "notifications",
+    "webRequest",
+    "tabs",
+    "storage",
+    "offscreen"
+  ],
+  "host_permissions": [
+    "https://gemini.google.com/*",
+    "https://chatgpt.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "AI 回答完成提醒器"
+  },
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["audio/*.mp3"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
