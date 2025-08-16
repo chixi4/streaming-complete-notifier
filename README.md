@@ -19,7 +19,7 @@
 
 * **作为未打包扩展加载**
 
-  1. 解压仓库后，打开 Chrome 地址栏输入：`chrome://extensions`
+  1. 下载src/javascript，打开 Chrome 地址栏输入：`chrome://extensions`
   2. 右上角开启 **开发者模式**
   3. 点击 **“加载已解压的扩展程序”**，选择项目目录：
 
