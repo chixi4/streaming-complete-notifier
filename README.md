@@ -15,9 +15,10 @@
      ```
   4. 安装后，点击浏览器工具栏扩展图标，按需打开站点开关与调整音量
   5. 打开 **[Gemini](https://gemini.google.com/)** 或 **[ChatGPT](https://chatgpt.com/)**，开始一次对话/生成；当模型完成，系统会弹出通知并播放提示音
-  
 
-2. **功能**
+
+
+     2. **功能**
 
 * 识别 **Gemini**（`gemini.google.com`）与 **ChatGPT**（`chatgpt.com`）回答完成时机
 * 完成时触发 **桌面通知** + 播放提示音
