@@ -4,22 +4,9 @@
 
 ### 使用示例
 
-1. **功能**
+1. **使用方法**
 
-* 🎯 识别 **Gemini**（`gemini.google.com`）与 **ChatGPT**（`chatgpt.com`）回答完成时机
-* 🔔 完成时触发 **桌面通知** + 播放提示音（默认音频 `streaming-complete.mp3`）
-* ⚙️ 扩展弹窗提供：
-
-  * 分站点开关：`启用 Gemini 提醒`、`启用 ChatGPT 提醒`
-  * 音量滑杆：0–100%，附“播放”测试按钮
-* 🧠 后台使用 offscreen 文档播放音频，降低被浏览器静音策略影响
-* 🧩 仅匹配目标域名，不干扰其他网页
-
-2. **使用方法**
-
-* **作为未打包扩展加载**
-
-  1. 下载src/javascript，打开 Chrome 地址栏输入：`chrome://extensions`
+  1. 下载streaming-complete-notifier/src/javascript，打开 Chrome 地址栏输入：`chrome://extensions`
   2. 右上角开启 **开发者模式**
   3. 点击 **“加载已解压的扩展程序”**，选择项目目录：
 
@@ -27,7 +14,20 @@
      streaming-complete-notifier/src/javascript
      ```
   4. 安装后，点击浏览器工具栏扩展图标，按需打开站点开关与调整音量
-  5. 打开 **Gemini** 或 **ChatGPT**，开始一次对话/生成；当模型停笔，系统会弹出通知并播放提示音
+  5. 打开 **[Gemini](https://gemini.google.com/)** 或 **[ChatGPT](https://chatgpt.com/)**，开始一次对话/生成；当模型完成，系统会弹出通知并播放提示音
+
+
+2. **功能**
+
+* 🎯 识别 **Gemini**（`gemini.google.com`）与 **ChatGPT**（`chatgpt.com`）回答完成时机
+* 🔔 完成时触发 **桌面通知** + 播放提示音
+* ⚙️ 扩展弹窗提供：
+
+  * 分站点开关：`启用 Gemini 提醒`、`启用 ChatGPT 提醒`
+  * 音量滑杆：0–100%，附“播放”测试按钮
+* 🧠 后台使用 offscreen 文档播放音频，降低被浏览器静音策略影响
+* 🧩 仅匹配目标域名，不干扰其他网页
+
 
 3. **使用小贴士**
 
