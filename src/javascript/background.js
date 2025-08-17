@@ -88,9 +88,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
+// 用于存储所有测试通知的ID和计时器
+const testNotifications = new Map();
+
 // 播放测试音频
 async function playTestSound(soundFile, soundType, volume) {
   try {
+    // 先清除所有现有的测试通知
+    for (const [notificationId, info] of testNotifications.entries()) {
+      clearTimeout(info.timerId);
+      chrome.notifications.clear(notificationId);
+      testNotifications.delete(notificationId);
+    }
+    
     // 构建通知消息
     let message = `正在播放测试音效，音量: ${Math.round(volume * 100)}%`;
     if (volume === 0) {
@@ -99,72 +109,44 @@ async function playTestSound(soundFile, soundType, volume) {
       message = "音量已设为最大 (100%)";
     }
     
-    // 显示测试通知
-    const testNotificationId = 'test_notification_' + Date.now();
+    // 创建新的测试通知
+    const testNotificationId = `test_${Date.now()}`;
+    
     chrome.notifications.create(testNotificationId, {
       type: "basic",
       iconUrl: "icon128.png",
       title: "🔊 音效测试",
       message: message,
-      priority: 1,
-      silent: true  // 使用自定义音效
+      silent: true
+    }, (notificationId) => {
+      if (notificationId) {
+        // 设置定时器清除通知
+        const timerId = setTimeout(() => {
+          chrome.notifications.clear(notificationId);
+          testNotifications.delete(notificationId);
+        }, 3000);
+        
+        // 存储通知信息
+        testNotifications.set(notificationId, {
+          timerId: timerId,
+          timestamp: Date.now()
+        });
+      }
     });
     
-    // 确保offscreen文档已创建
+    // 播放音频
     await createOffscreenDocument();
-    
-    // 等待一小段时间确保offscreen文档完全加载
-    await new Promise(resolve => setTimeout(resolve, 100));
-    
-    // 向offscreen文档发送消息
-    await chrome.runtime.sendMessage({
+    chrome.runtime.sendMessage({
       action: 'playSound',
       soundFile: soundFile,
       volume: volume
     });
-    console.log('测试音频播放消息发送成功:', soundFile);
     
-    // 3秒后自动清除测试通知
-    setTimeout(() => {
-      chrome.notifications.clear(testNotificationId);
-    }, 3000);
   } catch (error) {
-    console.error('播放测试音频失败:', error);
-    // 如果offscreen方式失败，尝试直接播放
-    try {
-      const audio = new Audio(chrome.runtime.getURL(`audio/streaming-complete.mp3`));
-      audio.volume = volume ?? 0.8;
-      await audio.play();
-      console.log('使用直接方式播放测试音频成功');
-      
-      // 即使是备用方式，也显示通知
-      const fallbackNotificationId = 'test_notification_fallback_' + Date.now();
-      chrome.notifications.create(fallbackNotificationId, {
-        type: "basic",
-        iconUrl: "icon128.png",
-        title: "🔊 音效测试",
-        message: `正在播放测试音效（备用方式），音量: ${Math.round(volume * 100)}%`,
-        priority: 1,
-        silent: true
-      });
-      
-      setTimeout(() => {
-        chrome.notifications.clear(fallbackNotificationId);
-      }, 3000);
-    } catch (fallbackError) {
-      console.error('直接播放测试音频也失败:', fallbackError);
-      
-      // 显示错误通知
-      chrome.notifications.create('test_error_' + Date.now(), {
-        type: "basic",
-        iconUrl: "icon128.png",
-        title: "❌ 音效测试失败",
-        message: "无法播放测试音效，请检查扩展权限",
-        priority: 2
-      });
-    }
+    console.error('测试功能出错:', error);
   }
 }
+
 
 // --- Gemini 相关配置 ---
 const GEMINI_HOST = "gemini.google.com";

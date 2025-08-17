@@ -2,14 +2,15 @@
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'playSound') {
     // 使用 ?? 而不是 || 来避免将0视为falsy
-    playNotificationSound(message.soundFile, message.volume ?? 0.8);
+    // 为每个请求创建独立的音频实例
+    playNotificationSound(message.soundFile, message.volume ?? 0.8, message.timestamp);
     sendResponse({ success: true });
   }
 });
 
-async function playNotificationSound(soundFile, volume = 0.8) {
+async function playNotificationSound(soundFile, volume = 0.8, timestamp) {
   try {
-    console.log('Offscreen: 尝试播放音频', soundFile, 'volume:', volume);
+    console.log('Offscreen: 尝试播放音频', soundFile, 'volume:', volume, 'timestamp:', timestamp);
     console.log('Offscreen: 音量类型:', typeof volume, '音量值:', volume);
     
     // 确保音量在有效范围内
@@ -23,9 +24,16 @@ async function playNotificationSound(soundFile, volume = 0.8) {
     
     // 如果是自定义音频文件URL（base64）
     if (soundFile.startsWith('blob:') || soundFile.startsWith('data:')) {
+      // 为每个请求创建新的Audio实例，确保并发播放
       const audio = new Audio(soundFile);
       audio.volume = volume;
       console.log('Offscreen: 设置自定义音频音量为:', audio.volume);
+      
+      // 播放完成后清理
+      audio.addEventListener('ended', () => {
+        audio.remove();
+      });
+      
       await audio.play();
       console.log('Offscreen: 播放自定义音频成功');
       return;
@@ -35,9 +43,15 @@ async function playNotificationSound(soundFile, volume = 0.8) {
     const audioUrl = chrome.runtime.getURL(`audio/${soundFile}`);
     console.log('Offscreen: 音频URL:', audioUrl);
     
+    // 为每个请求创建新的Audio实例
     const audio = new Audio(audioUrl);
     audio.volume = volume;
     console.log('Offscreen: 设置内置音频音量为:', audio.volume);
+    
+    // 播放完成后清理
+    audio.addEventListener('ended', () => {
+      audio.remove();
+    });
     
     await audio.play();
     console.log('Offscreen: 播放内置音频成功:', soundFile);
@@ -50,6 +64,12 @@ async function playNotificationSound(soundFile, volume = 0.8) {
         const defaultAudio = new Audio(chrome.runtime.getURL('audio/streaming-complete.mp3'));
         defaultAudio.volume = Math.max(0, Math.min(1, volume ?? 0.8));
         console.log('Offscreen: 设置默认音频音量为:', defaultAudio.volume);
+        
+        // 播放完成后清理
+        defaultAudio.addEventListener('ended', () => {
+          defaultAudio.remove();
+        });
+        
         await defaultAudio.play();
         console.log('Offscreen: 播放默认音频成功');
       } catch (fallbackError) {
