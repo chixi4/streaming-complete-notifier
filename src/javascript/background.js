@@ -65,7 +65,7 @@ async function playNotificationSound() {
     // 如果offscreen方式失败，尝试直接播放
     try {
       const audio = new Audio(chrome.runtime.getURL(`audio/streaming-complete.mp3`));
-      audio.volume = 0.8;
+      audio.volume = settings.soundVolume ?? 0.8;
       await audio.play();
       console.log('使用直接方式播放音频成功');
     } catch (fallbackError) {
@@ -91,6 +91,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 // 播放测试音频
 async function playTestSound(soundFile, soundType, volume) {
   try {
+    // 构建通知消息
+    let message = `正在播放测试音效，音量: ${Math.round(volume * 100)}%`;
+    if (volume === 0) {
+      message = "音量已设为静音 (0%)";
+    } else if (volume === 1) {
+      message = "音量已设为最大 (100%)";
+    }
+    
+    // 显示测试通知
+    const testNotificationId = 'test_notification_' + Date.now();
+    chrome.notifications.create(testNotificationId, {
+      type: "basic",
+      iconUrl: "icon128.png",
+      title: "🔊 音效测试",
+      message: message,
+      priority: 1,
+      silent: true  // 使用自定义音效
+    });
+    
     // 确保offscreen文档已创建
     await createOffscreenDocument();
     
@@ -104,16 +123,45 @@ async function playTestSound(soundFile, soundType, volume) {
       volume: volume
     });
     console.log('测试音频播放消息发送成功:', soundFile);
+    
+    // 3秒后自动清除测试通知
+    setTimeout(() => {
+      chrome.notifications.clear(testNotificationId);
+    }, 3000);
   } catch (error) {
     console.error('播放测试音频失败:', error);
     // 如果offscreen方式失败，尝试直接播放
     try {
       const audio = new Audio(chrome.runtime.getURL(`audio/streaming-complete.mp3`));
-      audio.volume = volume || 0.8;
+      audio.volume = volume ?? 0.8;
       await audio.play();
       console.log('使用直接方式播放测试音频成功');
+      
+      // 即使是备用方式，也显示通知
+      const fallbackNotificationId = 'test_notification_fallback_' + Date.now();
+      chrome.notifications.create(fallbackNotificationId, {
+        type: "basic",
+        iconUrl: "icon128.png",
+        title: "🔊 音效测试",
+        message: `正在播放测试音效（备用方式），音量: ${Math.round(volume * 100)}%`,
+        priority: 1,
+        silent: true
+      });
+      
+      setTimeout(() => {
+        chrome.notifications.clear(fallbackNotificationId);
+      }, 3000);
     } catch (fallbackError) {
       console.error('直接播放测试音频也失败:', fallbackError);
+      
+      // 显示错误通知
+      chrome.notifications.create('test_error_' + Date.now(), {
+        type: "basic",
+        iconUrl: "icon128.png",
+        title: "❌ 音效测试失败",
+        message: "无法播放测试音效，请检查扩展权限",
+        priority: 2
+      });
     }
   }
 }
