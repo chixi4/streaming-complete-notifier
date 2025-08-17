@@ -26,6 +26,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 监听音量变化
   volumeSlider.addEventListener('input', () => {
     const volume = parseFloat(volumeSlider.value);
+    console.log('音量滑块变化:', volume);
     volumeValue.textContent = Math.round(volume * 100) + '%';
     saveSettings();
   });
@@ -67,6 +68,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function testSound() {
     try {
       const volume = parseFloat(volumeSlider.value);
+      console.log('测试音频音量:', volume);
       
       await chrome.runtime.sendMessage({
         action: 'testSound',
