@@ -31,8 +31,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     saveSettings();
   });
   
-  // 测试按钮
-  testButton.addEventListener('click', testSound);
+  // 测试按钮 - 支持快速连续点击
+  let testClickCount = 0;
+  testButton.addEventListener('click', async () => {
+    testClickCount++;
+    const currentCount = testClickCount;
+    console.log(`测试按钮点击 #${currentCount}`);
+    
+    // 立即执行，不等待
+    testSound(currentCount).catch(err => {
+      console.error(`测试 #${currentCount} 失败:`, err);
+    });
+  });
   
   async function loadSettings() {
     try {
@@ -65,19 +75,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
   
-  async function testSound() {
+  async function testSound(clickId) {
     try {
       const volume = parseFloat(volumeSlider.value);
-      console.log('测试音频音量:', volume);
+      console.log(`测试音频音量 #${clickId}:`, volume);
       
-      await chrome.runtime.sendMessage({
+      // 立即发送消息，不等待响应
+      chrome.runtime.sendMessage({
         action: 'testSound',
         soundFile: 'streaming-complete.mp3',
         soundType: 'custom',
-        volume: volume
+        volume: volume,
+        clickId: clickId
+      }).catch(err => {
+        console.error(`发送测试消息失败 #${clickId}:`, err);
       });
+      
+      console.log(`测试消息已发送 #${clickId}`);
     } catch (error) {
-      console.error('测试音频失败:', error);
+      console.error(`测试音频失败 #${clickId}:`, error);
     }
   }
 });
