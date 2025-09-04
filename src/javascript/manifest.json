@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "AI 回答完成提醒器 (Gemini & ChatGPT)",
+  "name": "AI 回答完成提醒器 (Gemini & ChatGPT & AI Studio)",
   "version": "1.0.0",
-  "description": "当 Gemini 或 ChatGPT 完成回答生成时，发送桌面通知和声音提醒。",
+  "description": "当 Gemini、ChatGPT 或 AI Studio 完成回答生成时，发送桌面通知和声音提醒。",
   "permissions": [
     "notifications",
     "webRequest",
@@ -12,7 +12,9 @@
   ],
   "host_permissions": [
     "https://gemini.google.com/*",
-    "https://chatgpt.com/*"
+    "https://chatgpt.com/*",
+    "https://aistudio.google.com/*",
+    "https://*.clients6.google.com/*"
   ],
   "background": {
     "service_worker": "background.js"
