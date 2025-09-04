@@ -2,6 +2,7 @@
 document.addEventListener('DOMContentLoaded', async () => {
   const geminiEnabled = document.getElementById('geminiEnabled');
   const chatgptEnabled = document.getElementById('chatgptEnabled');
+  const aistudioEnabled = document.getElementById('aistudioEnabled');
   const volumeSlider = document.getElementById('volumeSlider');
   const volumeValue = document.getElementById('volumeValue');
   const testButton = document.getElementById('testButton');
@@ -22,6 +23,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 监听开关变化
   geminiEnabled.addEventListener('change', saveSettings);
   chatgptEnabled.addEventListener('change', saveSettings);
+  if (aistudioEnabled) {
+    aistudioEnabled.addEventListener('change', saveSettings);
+  }
   
   // 监听音量变化
   volumeSlider.addEventListener('input', () => {
@@ -49,12 +53,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       settings = await chrome.storage.sync.get({
         geminiEnabled: true,
         chatgptEnabled: true,
+        aistudioEnabled: true,
         soundVolume: 0.8
       });
       
       // 直接设置状态，此时界面还是隐藏的
       geminiEnabled.checked = settings.geminiEnabled;
       chatgptEnabled.checked = settings.chatgptEnabled;
+      if (aistudioEnabled) {
+        aistudioEnabled.checked = settings.aistudioEnabled;
+      }
       volumeSlider.value = settings.soundVolume;
       volumeValue.textContent = Math.round(settings.soundVolume * 100) + '%';
       
@@ -67,6 +75,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       settings.geminiEnabled = geminiEnabled.checked;
       settings.chatgptEnabled = chatgptEnabled.checked;
+      if (aistudioEnabled) {
+        settings.aistudioEnabled = aistudioEnabled.checked;
+      }
       settings.soundVolume = parseFloat(volumeSlider.value);
       
       await chrome.storage.sync.set(settings);

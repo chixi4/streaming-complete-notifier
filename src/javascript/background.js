@@ -157,8 +157,12 @@ const CHATGPT_HOST = "chatgpt.com";
 const CHATGPT_SSE_PATH = "/backend-api/f/conversation";
 const CHATGPT_REPORT_PATH = "/backend-api/lat/r"; // 完成时的延迟报告请求
 
+// --- AI Studio 相关配置 ---
+const AISTUDIO_HOST = "aistudio.google.com";
+const AISTUDIO_RPC_PATTERN = /^https:\/\/[\w.-]*clients6\.google\.com\/\$rpc\/google\.internal\.alkali\.applications\.makersuite\.v1\.MakerSuiteService\/(CreatePrompt|UpdatePrompt)$/;
+
 // --- 通用配置与状态管理 ---
-const allUrls = [`https://*.${GEMINI_HOST}/*`, `https://*.${CHATGPT_HOST}/*`];
+const allUrls = [`https://*.${GEMINI_HOST}/*`, `https://*.${CHATGPT_HOST}/*`, `https://*.${AISTUDIO_HOST}/*`, "https://*.clients6.google.com/*"];
 const filter = { urls: allUrls, types: ["xmlhttprequest"] };
 
 // 用于记录 ChatGPT 的请求状态
@@ -271,15 +275,18 @@ async function sendNotification(title, message, platform = 'unknown') {
     // 检查平台是否启用
     const settings = await chrome.storage.sync.get({
       geminiEnabled: true,
-      chatgptEnabled: true
+      chatgptEnabled: true,
+      aistudioEnabled: true
     });
     
     // 根据消息标题判断平台并检查是否启用
     const isGemini = title.includes('Gemini');
     const isChatGPT = title.includes('ChatGPT');
+    const isAIStudio = title.includes('AI Studio');
     
     if (isGemini && !settings.geminiEnabled) return;
     if (isChatGPT && !settings.chatgptEnabled) return;
+    if (isAIStudio && !settings.aistudioEnabled) return;
     
     // 如果有旧通知，先清除它
     if (currentNotificationId) {
@@ -400,6 +407,15 @@ chrome.webRequest.onCompleted.addListener((details) => {
      return;
   }
   
+  // --- AI Studio RPC 请求检测 ---
+  if (AISTUDIO_RPC_PATTERN.test(details.url)) {
+    console.log('[AI Studio Notifier] 检测到 RPC 请求，tabId:', details.tabId);
+    if (!isThrottled(details.tabId, 2000)) {
+      sendNotification("AI Studio 生成完成", "AI Studio 的回答已生成完成。");
+    }
+    return;
+  }
+
   // --- ChatGPT Lat/R请求检测（长时间任务完成信号） ---
   if (url.hostname === CHATGPT_HOST && url.pathname === CHATGPT_REPORT_PATH) {
     console.log('[ChatGPT Notifier] 检测到lat/r请求，tabId:', details.tabId);
