@@ -1,4 +1,4 @@
-一个轻量的浏览器扩展/脚本，在 **Gemini** 与 **ChatGPT** 流式生成结束时，自动发送桌面通知并播放提示音。支持在扩展弹窗里按站点启用/禁用并调节音量。
+一个轻量的浏览器扩展/脚本，在 **Gemini** 、 **AI Studio** 与 **ChatGPT** 流式生成结束时，自动发送桌面通知并播放提示音。支持在扩展弹窗里按站点启用/禁用并调节音量。
 
 ---
 
@@ -12,7 +12,7 @@
      streaming-complete-notifier/src/javascript
      ```
   4. 安装后，点击浏览器工具栏扩展图标，按需打开站点开关与调整音量
-  5. 打开 **[Gemini](https://gemini.google.com/)** 或 **[ChatGPT](https://chatgpt.com/)**，开始一次对话/生成；当模型完成，系统会弹出通知并播放提示音
+  5. 打开 **[Gemini](https://gemini.google.com/)** [AI studio](https://aistudio.google.com/)或 **[ChatGPT](https://chatgpt.com/)**，开始一次对话/生成；当模型完成，系统会弹出通知并播放提示音
 
 
 ---
