@@ -269,8 +269,9 @@ function isThrottled(tabId, ms) {
 
 // 全局通知ID管理
 let currentNotificationId = null;
+let currentNotificationTarget = null;
 
-async function sendNotification(title, message, platform = 'unknown') {
+async function sendNotification(title, message, platform = 'unknown', options = {}) {
   try {
     // 检查平台是否启用
     const settings = await chrome.storage.sync.get({
@@ -291,10 +292,21 @@ async function sendNotification(title, message, platform = 'unknown') {
     // 如果有旧通知，先清除它
     if (currentNotificationId) {
       chrome.notifications.clear(currentNotificationId);
+      currentNotificationTarget = null;
     }
     
     // 生成新的通知ID
     currentNotificationId = 'ai_notification_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    const normalizedTabId = typeof options.tabId === 'number' && options.tabId >= 0 ? options.tabId : undefined;
+    const normalizedUrl = typeof options.targetUrl === 'string' && options.targetUrl.length > 0 ? options.targetUrl : undefined;
+    if (normalizedTabId !== undefined || normalizedUrl) {
+      currentNotificationTarget = {
+        tabId: normalizedTabId,
+        targetUrl: normalizedUrl
+      };
+    } else {
+      currentNotificationTarget = null;
+    }
     
     chrome.notifications.create(currentNotificationId, {
       type: "basic",
@@ -313,6 +325,7 @@ async function sendNotification(title, message, platform = 'unknown') {
       if (currentNotificationId) {
         chrome.notifications.clear(currentNotificationId);
         currentNotificationId = null;
+        currentNotificationTarget = null;
       }
     }, 8000);
   } catch (e) {
@@ -324,9 +337,46 @@ async function sendNotification(title, message, platform = 'unknown') {
 chrome.notifications.onClosed.addListener((notificationId, byUser) => {
   if (notificationId === currentNotificationId) {
     currentNotificationId = null;
+    currentNotificationTarget = null;
   }
 });
 
+
+chrome.notifications.onClicked.addListener((notificationId) => {
+  if (notificationId !== currentNotificationId) return;
+
+  const target = currentNotificationTarget;
+  currentNotificationId = null;
+  currentNotificationTarget = null;
+  chrome.notifications.clear(notificationId);
+
+  if (!target) return;
+  const { tabId, targetUrl } = target;
+  if (typeof tabId === 'number') {
+    chrome.tabs.get(tabId, (tab) => {
+      if (chrome.runtime.lastError || !tab) {
+        if (targetUrl) {
+          chrome.tabs.create({ url: targetUrl });
+        }
+        return;
+      }
+
+      if (typeof tab.windowId === 'number') {
+        chrome.windows.update(tab.windowId, { focused: true }, () => {
+          if (chrome.runtime.lastError) {
+            // 忽略窗口激活失败的错误
+          }
+        });
+      }
+      chrome.tabs.update(tabId, { active: true });
+    });
+    return;
+  }
+
+  if (targetUrl) {
+    chrome.tabs.create({ url: targetUrl });
+  }
+});
 
 // --- 监听器逻辑 ---
 
@@ -384,7 +434,10 @@ chrome.webRequest.onCompleted.addListener((details) => {
   if (url.hostname === GEMINI_HOST && details.method === "POST") {
     if (GEMINI_GENERATE_PATH_RE.test(url.pathname)) {
       if (!isThrottled(details.tabId, 2000)) { // 2秒节流
-        sendNotification("Gemini 生成完成", "当前页面的回答已生成完成。");
+        sendNotification("Gemini 生成完成", "当前页面的回答已生成完成。", 'gemini', {
+          tabId: details.tabId,
+          targetUrl: 'https://gemini.google.com/app'
+        });
       }
     }
     return; // 处理完 Gemini 的逻辑就结束
@@ -394,7 +447,10 @@ chrome.webRequest.onCompleted.addListener((details) => {
   const chatGPTReq = chatGPTRequests.get(details.requestId);
   if (chatGPTReq && chatGPTReq.isStream) {
      if (!isThrottled(details.tabId, 4000)) { // 4秒去抖
-        sendNotification("ChatGPT 生成完成", "检测到 ChatGPT 的生成流已结束。");
+        sendNotification("ChatGPT 生成完成", "检测到 ChatGPT 的生成流已结束。", 'chatgpt', {
+          tabId: chatGPTReq.tabId ?? details.tabId,
+          targetUrl: 'https://chatgpt.com/'
+        });
      }
      // 清理所有相关记录
      chatGPTRequests.delete(details.requestId);
@@ -411,7 +467,10 @@ chrome.webRequest.onCompleted.addListener((details) => {
   if (AISTUDIO_RPC_PATTERN.test(details.url)) {
     console.log('[AI Studio Notifier] 检测到 RPC 请求，tabId:', details.tabId);
     if (!isThrottled(details.tabId, 2000)) {
-      sendNotification("AI Studio 生成完成", "AI Studio 的回答已生成完成。");
+      sendNotification("AI Studio 生成完成", "AI Studio 的回答已生成完成。", 'aistudio', {
+        tabId: details.tabId,
+        targetUrl: 'https://aistudio.google.com/'
+      });
     }
     return;
   }
@@ -436,7 +495,10 @@ chrome.webRequest.onCompleted.addListener((details) => {
     // 简化逻辑：有生成记录就通知（至少要10秒避免太快的误报）
     if (lastStart && (now - lastStart > 10000)) {
       if (!isThrottled(details.tabId, 4000)) {
-        sendNotification("ChatGPT 生成完成", "检测到延迟报告请求，任务已完成。");
+        sendNotification("ChatGPT 生成完成", "检测到延迟报告请求，任务已完成。", 'chatgpt', {
+          tabId: details.tabId,
+          targetUrl: 'https://chatgpt.com/'
+        });
       }
       // 清理所有记录
       for (const [requestId, req] of chatGPTRequests.entries()) {
