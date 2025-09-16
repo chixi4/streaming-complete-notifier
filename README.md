@@ -18,12 +18,6 @@
 1. 将 `src/javascript` 目录下的文件打包为 zip（保持目录结构）。
 2. 按 Chrome Web Store 或 Edge Add-ons 的要求上传该压缩包完成发布。
 
-## Git 提交流程
-1. 查看修改：`git status`。
-2. 纳入版本控制：`git add .`（或按需挑选文件）。
-3. 编写提交信息：`git commit -m "Remove Docker setup"`。
-4. 推送到 GitHub：`git push origin <分支名>`。
-
 ## 目录结构
 ```
 streaming-complete-notifier/
@@ -33,4 +27,4 @@ streaming-complete-notifier/
 ```
 
 ## 许可协议
-依据仓库实际选择的协议（如未指定，可在此处补充）。
+MIT
