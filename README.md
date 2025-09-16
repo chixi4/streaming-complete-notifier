@@ -1,4 +1,4 @@
-﻿# Streaming Complete Notifier
+﻿# 回答完就通知
 
 ## 项目简介
 用于监测 Gemini、ChatGPT 与 AI Studio 的生成请求，当检测到生成结束时弹出桌面通知并播放提示音，可快速跳转回对应页面。
