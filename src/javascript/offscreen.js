@@ -2,27 +2,24 @@
 const DEFAULT_VOLUME = 1;
 const MAX_VOLUME = 1.5;
 const MAX_ZERO_DB_GAIN = 6; // 防止过度增益导致失真
-
+const MAX_COMPRESSOR_DRIVE = 3;
+const MAX_COMPRESSOR_MAKEUP = 1.8;
 const audioBufferCache = new Map();
 let audioContext = null;
 let currentContextId = 0;
-
 const clampVolume = (value) => {
   const numeric = typeof value === 'number' ? value : parseFloat(value);
   if (Number.isNaN(numeric)) return DEFAULT_VOLUME;
   return Math.min(Math.max(numeric, 0), MAX_VOLUME);
 };
-
 const mapVolumeToGain = (volume, zeroDbGain = 1) => {
   const clamped = clampVolume(volume);
   if (clamped <= 1) {
     return clamped;
   }
-
   const normalized = (clamped - 1) / (MAX_VOLUME - 1);
   return 1 + normalized * (zeroDbGain - 1);
 };
-
 const analyzeBufferPeak = (buffer) => {
   let peak = 0;
   for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
@@ -36,7 +33,18 @@ const analyzeBufferPeak = (buffer) => {
   }
   return peak;
 };
-
+const getCompressionConfig = (volume) => {
+  const clamped = clampVolume(volume);
+  if (clamped <= 1) {
+    return { drive: 1, makeup: 1, threshold: -6, ratio: 4 };
+  }
+  const normalized = (clamped - 1) / (MAX_VOLUME - 1);
+  const drive = 1 + normalized * (MAX_COMPRESSOR_DRIVE - 1);
+  const makeup = 1 + normalized * (MAX_COMPRESSOR_MAKEUP - 1);
+  const threshold = -12 + normalized * 6;
+  const ratio = 6 + normalized * 6;
+  return { drive, makeup, threshold, ratio };
+};
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.action === 'playSound') {
     const targetVolume = clampVolume(message.volume ?? DEFAULT_VOLUME);
@@ -50,7 +58,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
   return false;
 });
-
 async function ensureAudioContext() {
   if (!audioContext || audioContext.state === 'closed') {
     audioContext = new AudioContext();
@@ -67,7 +74,6 @@ async function ensureAudioContext() {
   }
   return audioContext;
 }
-
 async function loadAudioBuffer(url, cacheKey) {
   const context = await ensureAudioContext();
   if (cacheKey && audioBufferCache.has(cacheKey)) {
@@ -77,7 +83,6 @@ async function loadAudioBuffer(url, cacheKey) {
     }
     audioBufferCache.delete(cacheKey);
   }
-
   const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`无法加载音频资源: ${response.status}`);
@@ -92,28 +97,25 @@ async function loadAudioBuffer(url, cacheKey) {
   }
   return metadata;
 }
-
-function createCompressor(context) {
+function createCompressor(context, config = { drive: 1, makeup: 1, threshold: -6, ratio: 4 }) {
   const compressor = context.createDynamicsCompressor();
-  compressor.threshold.value = -6;
-  compressor.knee.value = 10;
-  compressor.ratio.value = 8;
+  compressor.threshold.value = config.threshold;
+  compressor.knee.value = 8;
+  compressor.ratio.value = config.ratio;
   compressor.attack.value = 0.003;
   compressor.release.value = 0.25;
   return compressor;
 }
-
-async function playBufferWithGain(buffer, gainValue) {
+async function playBufferWithGain(buffer, gainValue, compression = { drive: 1, makeup: 1, threshold: -6, ratio: 4 }) {
   const context = await ensureAudioContext();
   const source = context.createBufferSource();
   source.buffer = buffer;
-
-  const gainNode = context.createGain();
-  gainNode.gain.value = gainValue;
-
-  const compressor = createCompressor(context);
-  source.connect(gainNode).connect(compressor).connect(context.destination);
-
+  const preGain = context.createGain();
+  preGain.gain.value = gainValue * (compression.drive ?? 1);
+  const compressor = createCompressor(context, compression);
+  const postGain = context.createGain();
+  postGain.gain.value = compression.makeup ?? 1;
+  source.connect(preGain).connect(compressor).connect(postGain).connect(context.destination);
   return new Promise((resolve, reject) => {
     source.addEventListener('ended', resolve, { once: true });
     source.addEventListener('error', reject, { once: true });
@@ -124,20 +126,19 @@ async function playBufferWithGain(buffer, gainValue) {
     }
   });
 }
-
 async function playNotificationSound(soundFile, volume = DEFAULT_VOLUME, timestamp, allowRetry = true) {
   const normalizedVolume = clampVolume(volume);
   let playbackGain = mapVolumeToGain(normalizedVolume, 1);
+  const compression = getCompressionConfig(normalizedVolume);
   console.log('Offscreen: 准备播放音频', soundFile, '滑块值:', normalizedVolume, 'timestamp:', timestamp);
-
   try {
     const isCustomSource = typeof soundFile === 'string' && (soundFile.startsWith('blob:') || soundFile.startsWith('data:'));
     const resolvedUrl = isCustomSource ? soundFile : chrome.runtime.getURL(`audio/${soundFile}`);
     const cacheKey = isCustomSource ? null : resolvedUrl;
     const audioData = await loadAudioBuffer(resolvedUrl, cacheKey);
     playbackGain = mapVolumeToGain(normalizedVolume, audioData.zeroDbGain);
-    await playBufferWithGain(audioData.buffer, playbackGain);
-    console.log('Offscreen: Web Audio 播放完成，实际增益:', playbackGain.toFixed(2), '峰值:', audioData.peak.toFixed(4));
+    await playBufferWithGain(audioData.buffer, playbackGain, compression);
+    console.log('Offscreen: Web Audio 播放完成，实际增益:', playbackGain.toFixed(2), '峰值:', audioData.peak.toFixed(4), '压缩驱动:', compression.drive.toFixed(2), '补偿增益:', compression.makeup.toFixed(2));
   } catch (error) {
     if (allowRetry) {
       console.warn('Offscreen: Web Audio 播放失败，重建 AudioContext 后重试', error);
@@ -145,21 +146,19 @@ async function playNotificationSound(soundFile, volume = DEFAULT_VOLUME, timesta
       audioBufferCache.clear();
       return playNotificationSound(soundFile, normalizedVolume, timestamp, false);
     }
-
     console.error('Offscreen: Web Audio 播放失败，改用 <audio>', error);
     const fallbackUrl = typeof soundFile === 'string' && !soundFile.startsWith('blob:') && !soundFile.startsWith('data:')
       ? chrome.runtime.getURL(`audio/${soundFile}`)
       : soundFile;
-    await playWithAudioElement(fallbackUrl, playbackGain);
+    await playWithAudioElement(fallbackUrl, playbackGain, compression);
   }
-
 }
-
-async function playWithAudioElement(url, gainValue) {
+async function playWithAudioElement(url, gainValue, compression = { drive: 1, makeup: 1 }) {
   return new Promise((resolve, reject) => {
     try {
       const audio = new Audio(url);
-      audio.volume = Math.min(gainValue, 1);
+      const fallbackGain = Math.min(gainValue * (compression.makeup ?? 1), 1);
+      audio.volume = fallbackGain;
       audio.addEventListener('ended', () => {
         audio.remove();
         resolve();
