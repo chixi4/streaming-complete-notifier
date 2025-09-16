@@ -3,6 +3,11 @@
 ## 项目简介
 用于监测 Gemini、ChatGPT 与 AI Studio 的生成请求，当检测到生成结束时弹出桌面通知并播放提示音，可快速跳转回对应页面。
 
+## 功能亮点
+- 实时捕捉 Gemini、ChatGPT 与 AI Studio 的回答完成事件，并推送原生系统通知
+- 新增 0~150% 的音量滑块，100% 为基准音量，150% 自动归一至 0 dB 峰值，确保放大不失真
+- 支持在设置页即时试听，并在不同上下文下保持一致的音量体验
+
 ## 环境准备
 - 任意支持 Chrome 扩展开发的操作系统（Windows / macOS / Linux）
 - Google Chrome 或 Microsoft Edge 浏览器（建议 116+）

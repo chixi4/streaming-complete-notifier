@@ -12,19 +12,18 @@ function keepServiceWorkerAlive() {
   }, 25000);
 }
 
-// 创建offscreen文档用于播放音频
+// 创建 offscreen 文档用于播放音频
 async function createOffscreenDocument() {
   try {
-    // 先检查是否已经存在offscreen文档
     const existingContexts = await chrome.runtime.getContexts({
       contextTypes: ['OFFSCREEN_DOCUMENT']
     });
-    
+
     if (existingContexts.length > 0) {
       console.log('Offscreen document 已存在');
       return;
     }
-    
+
     await chrome.offscreen.createDocument({
       url: 'offscreen.html',
       reasons: ['AUDIO_PLAYBACK'],
@@ -36,36 +35,40 @@ async function createOffscreenDocument() {
   }
 }
 
+const DEFAULT_VOLUME = 1;
+const MAX_VOLUME = 1.5;
+
+function clampVolume(value) {
+  const numeric = typeof value === 'number' ? value : parseFloat(value);
+  if (Number.isNaN(numeric)) return DEFAULT_VOLUME;
+  return Math.min(Math.max(numeric, 0), MAX_VOLUME);
+}
+
 // 播放通知声音
 async function playNotificationSound() {
+  let requestedVolume = DEFAULT_VOLUME;
   try {
-    // 获取用户设置
     const settings = await chrome.storage.sync.get({
-      soundVolume: 0.8
+      soundVolume: DEFAULT_VOLUME
     });
-    
-    // 确保offscreen文档已创建
+    requestedVolume = clampVolume(settings.soundVolume);
+
     await createOffscreenDocument();
-    
-    // 等待一小段时间确保offscreen文档完全加载
     await new Promise(resolve => setTimeout(resolve, 100));
-    
-    // 始终播放内置音效
+
     const soundFile = 'streaming-complete.mp3';
-    
-    // 向offscreen文档发送消息
+
     await chrome.runtime.sendMessage({
       action: 'playSound',
       soundFile: soundFile,
-      volume: settings.soundVolume
+      volume: requestedVolume
     });
-    console.log('音频播放消息发送成功:', soundFile);
+    console.log('音频播放消息发送成功:', soundFile, 'volume:', requestedVolume);
   } catch (error) {
     console.error('播放通知声音失败:', error);
-    // 如果offscreen方式失败，尝试直接播放
     try {
       const audio = new Audio(chrome.runtime.getURL(`audio/streaming-complete.mp3`));
-      audio.volume = settings.soundVolume ?? 0.8;
+      audio.volume = Math.min(requestedVolume / MAX_VOLUME, 1);
       await audio.play();
       console.log('使用直接方式播放音频成功');
     } catch (fallbackError) {
@@ -77,7 +80,7 @@ async function playNotificationSound() {
 // 启动保活机制
 keepServiceWorkerAlive();
 
-// 创建offscreen文档
+// 创建 offscreen 文档
 createOffscreenDocument();
 
 // 监听来自选项页面的测试音频请求
@@ -88,65 +91,61 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 });
 
-// 用于存储所有测试通知的ID和计时器
 const testNotifications = new Map();
 
 // 播放测试音频
 async function playTestSound(soundFile, soundType, volume) {
   try {
-    // 先清除所有现有的测试通知
     for (const [notificationId, info] of testNotifications.entries()) {
       clearTimeout(info.timerId);
       chrome.notifications.clear(notificationId);
       testNotifications.delete(notificationId);
     }
-    
-    // 构建通知消息
-    let message = `正在播放测试音效，音量: ${Math.round(volume * 100)}%`;
-    if (volume === 0) {
-      message = "音量已设为静音 (0%)";
-    } else if (volume === 1) {
-      message = "音量已设为最大 (100%)";
+
+    const normalizedVolume = clampVolume(volume);
+    const percent = Math.round(normalizedVolume * 100);
+    let message = `正在播放测试音效，音量：${percent}%`;
+    if (normalizedVolume === 0) {
+      message = '音量已设为静音 (0%)';
+    } else if (Math.abs(normalizedVolume - MAX_VOLUME) < 0.001) {
+      message = `音量已设为最大 (${Math.round(MAX_VOLUME * 100)}%)`;
+    } else if (Math.abs(normalizedVolume - DEFAULT_VOLUME) < 0.001) {
+      message = `音量已设为默认值 (${Math.round(DEFAULT_VOLUME * 100)}%)`;
     }
-    
-    // 创建新的测试通知
+
     const testNotificationId = `test_${Date.now()}`;
-    
+
     chrome.notifications.create(testNotificationId, {
-      type: "basic",
-      iconUrl: "icon128.png",
-      title: "🔊 音效测试",
+      type: 'basic',
+      iconUrl: 'icon128.png',
+      title: '🔊 音效测试',
       message: message,
       silent: true
     }, (notificationId) => {
       if (notificationId) {
-        // 设置定时器清除通知
         const timerId = setTimeout(() => {
           chrome.notifications.clear(notificationId);
           testNotifications.delete(notificationId);
         }, 3000);
-        
-        // 存储通知信息
+
         testNotifications.set(notificationId, {
           timerId: timerId,
           timestamp: Date.now()
         });
       }
     });
-    
-    // 播放音频
+
     await createOffscreenDocument();
     chrome.runtime.sendMessage({
       action: 'playSound',
       soundFile: soundFile,
-      volume: volume
+      volume: normalizedVolume
     });
-    
+
   } catch (error) {
     console.error('测试功能出错:', error);
   }
 }
-
 
 // --- Gemini 相关配置 ---
 const GEMINI_HOST = "gemini.google.com";
