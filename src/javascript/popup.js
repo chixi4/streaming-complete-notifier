@@ -2,6 +2,7 @@
 document.addEventListener('DOMContentLoaded', async () => {
   const geminiEnabled = document.getElementById('geminiEnabled');
   const chatgptEnabled = document.getElementById('chatgptEnabled');
+  const chatgptReasoningEndEnabled = document.getElementById('chatgptReasoningEndEnabled');
   const aistudioEnabled = document.getElementById('aistudioEnabled');
   const volumeSlider = document.getElementById('volumeSlider');
   const volumeValue = document.getElementById('volumeValue');
@@ -31,7 +32,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // 监听开关变化
   geminiEnabled.addEventListener('change', saveSettings);
-  chatgptEnabled.addEventListener('change', saveSettings);
+  chatgptEnabled.addEventListener('change', () => {
+    // 当 ChatGPT 主开关关闭时，子开关也禁用
+    updateSubSwitchState();
+    saveSettings();
+  });
+  if (chatgptReasoningEndEnabled) {
+    chatgptReasoningEndEnabled.addEventListener('change', saveSettings);
+  }
   if (aistudioEnabled) {
     aistudioEnabled.addEventListener('change', saveSettings);
   }
@@ -39,7 +47,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 监听音量变化
   volumeSlider.addEventListener('input', () => {
     const clampedVolume = clampVolume(volumeSlider.value);
-    console.log('音量滑块变化:', clampedVolume);
     volumeSlider.value = clampedVolume;
     volumeValue.textContent = Math.round(clampedVolume * 100) + '%';
     saveSettings();
@@ -50,7 +57,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   testButton.addEventListener('click', async () => {
     testClickCount++;
     const currentCount = testClickCount;
-    console.log(`测试按钮点击 #${currentCount}`);
 
     // 立即执行，不等待
     testSound(currentCount).catch(err => {
@@ -58,11 +64,25 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
 
+  // 更新子开关状态（根据父开关）
+  function updateSubSwitchState() {
+    if (chatgptReasoningEndEnabled) {
+      const parentEnabled = chatgptEnabled.checked;
+      chatgptReasoningEndEnabled.disabled = !parentEnabled;
+      // 视觉上显示禁用状态
+      const subItem = chatgptReasoningEndEnabled.closest('.sub-item');
+      if (subItem) {
+        subItem.style.opacity = parentEnabled ? '1' : '0.5';
+      }
+    }
+  }
+
   async function loadSettings() {
     try {
       settings = await chrome.storage.sync.get({
         geminiEnabled: true,
         chatgptEnabled: true,
+        chatgptReasoningEndEnabled: true,
         aistudioEnabled: true,
         soundVolume: DEFAULT_VOLUME
       });
@@ -70,6 +90,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       // 直接设置状态，此时界面还是隐藏状态
       geminiEnabled.checked = settings.geminiEnabled;
       chatgptEnabled.checked = settings.chatgptEnabled;
+      if (chatgptReasoningEndEnabled) {
+        chatgptReasoningEndEnabled.checked = settings.chatgptReasoningEndEnabled;
+      }
       if (aistudioEnabled) {
         aistudioEnabled.checked = settings.aistudioEnabled;
       }
@@ -78,6 +101,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       settings.soundVolume = sanitizedVolume;
       volumeSlider.value = sanitizedVolume;
       volumeValue.textContent = Math.round(sanitizedVolume * 100) + '%';
+
+      // 更新子开关状态
+      updateSubSwitchState();
 
     } catch (error) {
       console.error('加载设置失败:', error);
@@ -88,6 +114,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     try {
       settings.geminiEnabled = geminiEnabled.checked;
       settings.chatgptEnabled = chatgptEnabled.checked;
+      if (chatgptReasoningEndEnabled) {
+        settings.chatgptReasoningEndEnabled = chatgptReasoningEndEnabled.checked;
+      }
       if (aistudioEnabled) {
         settings.aistudioEnabled = aistudioEnabled.checked;
       }
@@ -102,7 +131,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function testSound(clickId) {
     try {
       const volume = clampVolume(volumeSlider.value);
-      console.log(`测试音频音量 #${clickId}:`, volume);
 
       // 立即发送消息，不等待响应
       chrome.runtime.sendMessage({
@@ -114,8 +142,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       }).catch(err => {
         console.error(`发送测试消息失败 #${clickId}:`, err);
       });
-
-      console.log(`测试消息已发送 #${clickId}`);
     } catch (error) {
       console.error(`测试音频失败 #${clickId}:`, error);
     }
