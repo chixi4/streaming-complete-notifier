@@ -1,175 +1,189 @@
-// Offscreen 音频播放
-const DEFAULT_VOLUME = 1;
-const MAX_VOLUME = 1.5;
-const MAX_ZERO_DB_GAIN = 6; // 防止过度增益导致失真
-const MAX_COMPRESSOR_DRIVE = 3;
-const MAX_COMPRESSOR_MAKEUP = 1.8;
-const audioBufferCache = new Map();
+// Offscreen 音频播放模块
+// 音量范围：0% - 150%
+// 0% = 静音
+// 100% = 原始音量
+// 150% = 压缩后增益至 ~0dB
+
+const DEFAULT_VOLUME = 1;      // 100%
+const MAX_VOLUME = 1.5;        // 150%
+
+// 音频上下文和缓存
 let audioContext = null;
-let currentContextId = 0;
-const clampVolume = (value) => {
-  const numeric = typeof value === 'number' ? value : parseFloat(value);
-  if (Number.isNaN(numeric)) return DEFAULT_VOLUME;
-  return Math.min(Math.max(numeric, 0), MAX_VOLUME);
-};
-const mapVolumeToGain = (volume, zeroDbGain = 1) => {
-  const clamped = clampVolume(volume);
-  if (clamped <= 1) {
-    return clamped;
-  }
-  const normalized = (clamped - 1) / (MAX_VOLUME - 1);
-  return 1 + normalized * (zeroDbGain - 1);
-};
-const analyzeBufferPeak = (buffer) => {
+let audioBufferCache = null;  // { buffer, peakLevel }
+
+// 音量钳制
+function clampVolume(value) {
+  const num = typeof value === 'number' ? value : parseFloat(value);
+  if (Number.isNaN(num)) return DEFAULT_VOLUME;
+  return Math.min(Math.max(num, 0), MAX_VOLUME);
+}
+
+// 分析音频峰值（用于计算增益上限）
+function analyzePeakLevel(buffer) {
   let peak = 0;
-  for (let channel = 0; channel < buffer.numberOfChannels; channel++) {
-    const samples = buffer.getChannelData(channel);
-    for (let i = 0; i < samples.length; i++) {
-      const absSample = Math.abs(samples[i]);
-      if (absSample > peak) {
-        peak = absSample;
-      }
+  for (let ch = 0; ch < buffer.numberOfChannels; ch++) {
+    const data = buffer.getChannelData(ch);
+    for (let i = 0; i < data.length; i++) {
+      const abs = Math.abs(data[i]);
+      if (abs > peak) peak = abs;
     }
   }
-  return peak;
-};
-const getCompressionConfig = (volume) => {
-  const clamped = clampVolume(volume);
-  if (clamped <= 1) {
-    return { drive: 1, makeup: 1, threshold: -6, ratio: 4 };
-  }
-  const normalized = (clamped - 1) / (MAX_VOLUME - 1);
-  const drive = 1 + normalized * (MAX_COMPRESSOR_DRIVE - 1);
-  const makeup = 1 + normalized * (MAX_COMPRESSOR_MAKEUP - 1);
-  const threshold = -12 + normalized * 6;
-  const ratio = 6 + normalized * 6;
-  return { drive, makeup, threshold, ratio };
-};
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === 'playSound') {
-    const targetVolume = clampVolume(message.volume ?? DEFAULT_VOLUME);
-    playNotificationSound(message.soundFile, targetVolume, message.timestamp)
-      .then(() => sendResponse({ success: true }))
-      .catch((error) => {
-        console.error('Offscreen: 播放音频失败:', error);
-        sendResponse({ success: false, error: error?.message });
-      });
-    return true;
-  }
-  return false;
-});
-async function ensureAudioContext() {
+  return Math.max(peak, 0.001); // 避免除零
+}
+
+// 确保 AudioContext 可用
+async function getAudioContext() {
   if (!audioContext || audioContext.state === 'closed') {
     audioContext = new AudioContext();
-    currentContextId += 1;
-    audioBufferCache.clear();
+    audioBufferCache = null; // 上下文变化时清除缓存
   }
   if (audioContext.state === 'suspended') {
-    try {
-      await audioContext.resume();
-    } catch (error) {
-      console.warn('Offscreen: 无法恢复 AudioContext，使用备用方案', error);
-      throw error;
-    }
+    await audioContext.resume();
   }
   return audioContext;
 }
-async function loadAudioBuffer(url, cacheKey) {
-  const context = await ensureAudioContext();
-  if (cacheKey && audioBufferCache.has(cacheKey)) {
-    const cached = audioBufferCache.get(cacheKey);
-    if (cached && cached.contextId === currentContextId) {
-      return cached;
-    }
-    audioBufferCache.delete(cacheKey);
+
+// 加载音频文件（带缓存）
+async function loadAudioBuffer(url) {
+  const ctx = await getAudioContext();
+
+  // 使用缓存
+  if (audioBufferCache) {
+    return audioBufferCache;
   }
+
   const response = await fetch(url);
   if (!response.ok) {
-    throw new Error(`无法加载音频资源: ${response.status}`);
+    throw new Error(`加载音频失败: ${response.status}`);
   }
+
   const arrayBuffer = await response.arrayBuffer();
-  const buffer = await context.decodeAudioData(arrayBuffer);
-  const peak = Math.max(analyzeBufferPeak(buffer), 1e-4);
-  const zeroDbGain = Math.min(MAX_ZERO_DB_GAIN, 1 / peak);
-  const metadata = { buffer, peak, zeroDbGain, contextId: currentContextId };
-  if (cacheKey) {
-    audioBufferCache.set(cacheKey, metadata);
+  const buffer = await ctx.decodeAudioData(arrayBuffer);
+  const peakLevel = analyzePeakLevel(buffer);
+
+  audioBufferCache = { buffer, peakLevel };
+  return audioBufferCache;
+}
+
+// 计算播放增益（对数曲线，符合人耳感知）
+// volume: 0 ~ 1.5
+// peakLevel: 音频原始峰值
+function calculateGain(volume, peakLevel) {
+  if (volume <= 0) return 0;
+
+  // 0% ~ 100%: 对数曲线
+  // 使用公式: gain = volume^2 (近似对数感知)
+  // 这样 50% 滑块位置 ≈ 25% 实际增益，听感上是"一半音量"
+  if (volume <= 1) {
+    return volume * volume;
   }
-  return metadata;
+
+  // 100% ~ 150%: 从原始音量向 0dB（峰值归一化）渐进
+  // 当 volume = 1.5 时，增益 = 1 / peakLevel（使峰值达到 0dB）
+  const maxGain = 1 / peakLevel;
+  const t = (volume - 1) / (MAX_VOLUME - 1); // 0 ~ 1
+  // 100% 时增益 = 1，150% 时增益 = maxGain
+  return 1 + t * (maxGain - 1);
 }
-function createCompressor(context, config = { drive: 1, makeup: 1, threshold: -6, ratio: 4 }) {
-  const compressor = context.createDynamicsCompressor();
-  compressor.threshold.value = config.threshold;
-  compressor.knee.value = 8;
-  compressor.ratio.value = config.ratio;
-  compressor.attack.value = 0.003;
-  compressor.release.value = 0.25;
-  return compressor;
-}
-async function playBufferWithGain(buffer, gainValue, compression = { drive: 1, makeup: 1, threshold: -6, ratio: 4 }) {
-  const context = await ensureAudioContext();
-  const source = context.createBufferSource();
+
+// 播放音频（Web Audio API）
+async function playWithWebAudio(volume) {
+  const ctx = await getAudioContext();
+  const url = chrome.runtime.getURL('audio/streaming-complete.mp3');
+  const { buffer, peakLevel } = await loadAudioBuffer(url);
+
+  const gain = calculateGain(volume, peakLevel);
+
+  // 创建节点
+  const source = ctx.createBufferSource();
   source.buffer = buffer;
-  const preGain = context.createGain();
-  preGain.gain.value = gainValue * (compression.drive ?? 1);
-  const compressor = createCompressor(context, compression);
-  const postGain = context.createGain();
-  postGain.gain.value = compression.makeup ?? 1;
-  source.connect(preGain).connect(compressor).connect(postGain).connect(context.destination);
+
+  const gainNode = ctx.createGain();
+  gainNode.gain.value = gain;
+
+  // 当 volume > 1 时使用动态压缩器防止削波
+  if (volume > 1) {
+    const compressor = ctx.createDynamicsCompressor();
+    compressor.threshold.value = -6;  // 开始压缩的阈值
+    compressor.knee.value = 6;        // 软拐点
+    compressor.ratio.value = 8;       // 压缩比
+    compressor.attack.value = 0.003;  // 快速响应
+    compressor.release.value = 0.1;   // 快速释放
+
+    // 补偿增益：压缩器会衰减信号，需要补偿回来
+    // 补偿量随音量线性增加，150% 时约 1.5x
+    const makeupGain = ctx.createGain();
+    const t = (volume - 1) / (MAX_VOLUME - 1); // 0 ~ 1
+    makeupGain.gain.value = 1 + t * 0.5; // 1.0 ~ 1.5
+
+    source.connect(gainNode).connect(compressor).connect(makeupGain).connect(ctx.destination);
+  } else {
+    source.connect(gainNode).connect(ctx.destination);
+  }
+
   return new Promise((resolve, reject) => {
-    source.addEventListener('ended', resolve, { once: true });
-    source.addEventListener('error', reject, { once: true });
-    try {
-      source.start(0);
-    } catch (error) {
-      reject(error);
-    }
+    source.onended = resolve;
+    source.onerror = reject;
+    source.start(0);
   });
 }
-async function playNotificationSound(soundFile, volume = DEFAULT_VOLUME, timestamp, allowRetry = true) {
+
+// 备用播放方案（HTML Audio 元素）
+async function playWithAudioElement(volume) {
+  return new Promise((resolve, reject) => {
+    const audio = new Audio(chrome.runtime.getURL('audio/streaming-complete.mp3'));
+    // HTML Audio 只支持 0~1 音量，超过 100% 时使用 1
+    audio.volume = Math.min(volume, 1);
+    audio.onended = () => {
+      audio.remove();
+      resolve();
+    };
+    audio.onerror = (e) => {
+      audio.remove();
+      reject(e);
+    };
+    audio.play().catch(reject);
+  });
+}
+
+// 主播放函数
+async function playSound(volume) {
   const normalizedVolume = clampVolume(volume);
-  let playbackGain = mapVolumeToGain(normalizedVolume, 1);
-  const compression = getCompressionConfig(normalizedVolume);
-  console.log('Offscreen: 准备播放音频', soundFile, '滑块值:', normalizedVolume, 'timestamp:', timestamp);
+
+  console.log('[Offscreen] 播放音频, 音量:', Math.round(normalizedVolume * 100) + '%');
+
+  if (normalizedVolume === 0) {
+    console.log('[Offscreen] 音量为 0，跳过播放');
+    return Promise.resolve(); // 确保返回 Promise
+  }
+
   try {
-    const isCustomSource = typeof soundFile === 'string' && (soundFile.startsWith('blob:') || soundFile.startsWith('data:'));
-    const resolvedUrl = isCustomSource ? soundFile : chrome.runtime.getURL(`audio/${soundFile}`);
-    const cacheKey = isCustomSource ? null : resolvedUrl;
-    const audioData = await loadAudioBuffer(resolvedUrl, cacheKey);
-    playbackGain = mapVolumeToGain(normalizedVolume, audioData.zeroDbGain);
-    await playBufferWithGain(audioData.buffer, playbackGain, compression);
-    console.log('Offscreen: Web Audio 播放完成，实际增益:', playbackGain.toFixed(2), '峰值:', audioData.peak.toFixed(4), '压缩驱动:', compression.drive.toFixed(2), '补偿增益:', compression.makeup.toFixed(2));
+    await playWithWebAudio(normalizedVolume);
+    console.log('[Offscreen] Web Audio 播放完成');
   } catch (error) {
-    if (allowRetry) {
-      console.warn('Offscreen: Web Audio 播放失败，重建 AudioContext 后重试', error);
-      audioContext = null;
-      audioBufferCache.clear();
-      return playNotificationSound(soundFile, normalizedVolume, timestamp, false);
+    console.warn('[Offscreen] Web Audio 失败，尝试备用方案:', error.message);
+    // 重置上下文以便下次重试
+    audioContext = null;
+    audioBufferCache = null;
+
+    try {
+      await playWithAudioElement(normalizedVolume);
+      console.log('[Offscreen] Audio Element 播放完成 (音量上限 100%)');
+    } catch (fallbackError) {
+      console.error('[Offscreen] 所有播放方式均失败:', fallbackError);
+      throw fallbackError;
     }
-    console.error('Offscreen: Web Audio 播放失败，改用 <audio>', error);
-    const fallbackUrl = typeof soundFile === 'string' && !soundFile.startsWith('blob:') && !soundFile.startsWith('data:')
-      ? chrome.runtime.getURL(`audio/${soundFile}`)
-      : soundFile;
-    await playWithAudioElement(fallbackUrl, playbackGain, compression);
   }
 }
-async function playWithAudioElement(url, gainValue, compression = { drive: 1, makeup: 1 }) {
-  return new Promise((resolve, reject) => {
-    try {
-      const audio = new Audio(url);
-      const fallbackGain = Math.min(gainValue * (compression.makeup ?? 1), 1);
-      audio.volume = fallbackGain;
-      audio.addEventListener('ended', () => {
-        audio.remove();
-        resolve();
-      }, { once: true });
-      audio.addEventListener('error', (event) => {
-        audio.remove();
-        reject(event.error || new Error('Audio element 播放失败'));
-      }, { once: true });
-      audio.play().catch(reject);
-    } catch (error) {
-      reject(error);
-    }
-  });
-}
+
+// 消息监听
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  if (message.action === 'playSound') {
+    playSound(message.volume)
+      .then(() => sendResponse({ success: true }))
+      .catch((error) => sendResponse({ success: false, error: error.message }));
+    return true; // 异步响应
+  }
+});
+
+console.log('[Offscreen] 音频播放模块已加载');

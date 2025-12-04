@@ -60,6 +60,25 @@
     .menu-item:last-child {
       border-bottom: none;
     }
+
+    .menu-item.sub-item {
+      padding-left: 24px;
+      background: #fafafa;
+    }
+
+    .menu-item.sub-item .item-label {
+      font-size: 12px;
+      color: #5f6368;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      .menu-item.sub-item {
+        background: #1f2023;
+      }
+      .menu-item.sub-item .item-label {
+        color: #9aa0a6;
+      }
+    }
     
     .item-label {
       font-weight: 500;
@@ -252,6 +271,14 @@
     <div class="item-label">ChatGPT</div>
     <label class="toggle-switch">
       <input type="checkbox" id="chatgptEnabled">
+      <span class="slider"></span>
+    </label>
+  </div>
+
+  <div class="menu-item sub-item">
+    <div class="item-label">└ 思考完成提醒</div>
+    <label class="toggle-switch">
+      <input type="checkbox" id="chatgptReasoningEndEnabled">
       <span class="slider"></span>
     </label>
   </div>
